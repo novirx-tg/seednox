@@ -8,6 +8,7 @@ from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import ErrorEvent
 
+from src import __version__
 from src.bot.handlers import setup_routers
 from src.bot.middlewares import CallbackAnswerMiddleware, SecurityMiddleware, UserLockMiddleware
 from src.config import get_settings
@@ -74,7 +75,7 @@ async def main() -> None:
 
     me = await bot.get_me()
     await bot.delete_webhook(drop_pending_updates=True)
-    logger.info("Seednox запущен (@%s) — один экземпляр!", me.username)
+    logger.info("Seednox v%s запущен (@%s) — один экземпляр!", __version__, me.username)
 
     try:
         # handle_as_tasks=False — строгая очередь, без гонок FSM

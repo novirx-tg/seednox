@@ -4,6 +4,7 @@
 
 Open-source Telegram-бот для безопасного хранения сид-фраз криптокошельков.
 
+[![Version](https://img.shields.io/badge/version-0.2.0-blue.svg)](https://github.com/novirx-tg/seednox/releases/tag/v0.2.0)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11+-green.svg)](https://python.org)
 [![GitHub](https://img.shields.io/badge/GitHub-novirx--tg%2Fseednox-181717?logo=github)](https://github.com/novirx-tg/seednox)
@@ -152,4 +153,4 @@ seednox/
 
 ---
 
-**Seednox** — @seednoxbot · [GitHub](https://github.com/novirx-tg/seednox)
+**Seednox v0.2.0** — @seednoxbot · [GitHub](https://github.com/novirx-tg/seednox)

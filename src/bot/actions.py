@@ -3,6 +3,7 @@
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 
+from src import __version__
 from src.bot.helpers import is_active, log_action, reply_locked, use_decoy
 from src.bot.keyboards import SLOGAN, locked_keyboard, main_menu_keyboard, settings_keyboard, wallets_list_keyboard
 from src.bot.states import Unlock
@@ -14,7 +15,7 @@ from src.security.session import SessionManager
 async def do_start(message: Message, repo: Repository, session: SessionManager) -> None:
     if not await repo.user_exists(message.from_user.id):
         await message.answer(
-            f"👋 Добро пожаловать в <b>Seednox</b>!\n\n<i>{SLOGAN}</i>\n\n"
+            f"👋 Добро пожаловать в <b>Seednox</b> v{__version__}!\n\n<i>{SLOGAN}</i>\n\n"
             "Для начала: /register",
             parse_mode="HTML",
         )
@@ -35,6 +36,7 @@ async def do_start(message: Message, repo: Repository, session: SessionManager) 
 
 async def do_help(message: Message) -> None:
     await message.answer(
+        f"🛡 <b>Seednox</b> v{__version__}\n\n"
         "<b>Команды:</b> /start /register /unlock /lock /status /help\n"
         "Меню работает из любого состояния.",
         parse_mode="HTML",
