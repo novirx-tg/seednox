@@ -1,0 +1,89 @@
+import asyncio
+import logging
+import sys
+
+from aiogram import Bot, Dispatcher
+from aiogram.client.default import DefaultBotProperties
+from aiogram.enums import ParseMode
+from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.types import ErrorEvent
+
+from src.bot.handlers import setup_routers
+from src.bot.middlewares import CallbackAnswerMiddleware, SecurityMiddleware, UserLockMiddleware
+from src.config import get_settings
+from src.database.repository import Repository
+from src.security.audit import AuditLogger
+from src.security.session import SessionManager
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)],
+)
+logger = logging.getLogger(__name__)
+
+
+async def main() -> None:
+    settings = get_settings()
+    if not settings.bot_token.get_secret_value():
+        logger.error("BOT_TOKEN не задан. Скопируйте .env.example → .env")
+        sys.exit(1)
+
+    db_key = (
+        settings.db_encryption_key.get_secret_value()
+        if settings.db_encryption_key
+        else None
+    )
+    repo = Repository(settings.database_path, encryption_key=db_key)
+    await repo.connect()
+
+    stats = await repo.get_stats()
+    logger.info("БД: %s | users=%d wallets=%d", repo.db_path, stats["users"], stats["wallets"])
+
+    session = SessionManager(settings.session_timeout)
+    audit = AuditLogger(repo)
+
+    bot = Bot(
+        token=settings.bot_token.get_secret_value(),
+        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+    )
+    dp = Dispatcher(storage=MemoryStorage())
+
+    dp["repo"] = repo
+    dp["session"] = session
+    dp["audit"] = audit
+
+    @dp.errors()
+    async def on_error(event: ErrorEvent) -> None:
+        logger.exception("Ошибка обработки update: %s", event.exception)
+        update = event.update
+        try:
+            if update.message:
+                await update.message.answer(
+                    "⚠️ Произошла ошибка. Попробуйте /start",
+                )
+            elif update.callback_query:
+                await update.callback_query.answer("Ошибка", show_alert=True)
+        except Exception:
+            pass
+
+    dp.update.middleware(UserLockMiddleware())
+    dp.update.middleware(SecurityMiddleware())
+    dp.update.middleware(CallbackAnswerMiddleware())
+    dp.include_router(setup_routers())
+
+    me = await bot.get_me()
+    await bot.delete_webhook(drop_pending_updates=True)
+    logger.info("Seednox запущен (@%s) — один экземпляр!", me.username)
+
+    try:
+        # handle_as_tasks=False — строгая очередь, без гонок FSM
+        await dp.start_polling(bot, drop_pending_updates=True)
+    finally:
+        await repo.close()
+        await bot.session.close()
+        logger.info("Seednox остановлен")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

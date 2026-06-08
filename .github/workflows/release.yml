@@ -1,0 +1,60 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install sqlcipher3 || true
+
+      - name: Generate checksums
+        run: |
+          find src run.py requirements.txt Dockerfile docker-compose.yml -type f | sort | xargs sha256sum > SHA256SUMS.txt
+
+      - name: Build Docker image
+        run: docker build -t seednox:${{ github.ref_name }} .
+
+      - name: Docker image checksum
+        run: |
+          docker save seednox:${{ github.ref_name }} | sha256sum | awk '{print $1"  seednox-'${{ github.ref_name }}'.tar"}' >> SHA256SUMS.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: SHA256SUMS.txt
+          generate_release_notes: true
+          body: |
+            ## Проверка целостности
+
+            Сверьте хеши в `SHA256SUMS.txt` после скачивания.
+
+            ## Docker
+
+            ```bash
+            git clone https://github.com/novirx-tg/seednox.git
+            cd seednox
+            git checkout ${{ github.ref_name }}
+            docker compose up -d --build
+            ```
+
+            ## Self-host
+
+            Исходный код открыт: https://github.com/novirx-tg/seednox
