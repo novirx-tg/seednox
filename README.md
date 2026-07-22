@@ -122,4 +122,4 @@ seednox/
 
 ---
 
-**Seednox v0.2.0** — @seednoxbot · [GitHub](https://github.com/novirx-tg/seednox)
+**Seednox v1.0.0** — [@seednox](https://t.me/seednox) · [Сайт](https://novirx.cyou/seednox/) · [GitHub](https://github.com/novirx-tg/seednox)
