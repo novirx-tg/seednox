@@ -1,0 +1,13 @@
+services:
+  seednoxbot:
+    build: .
+    container_name: seednoxbot
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Всегда один путь внутри контейнера, данные — в ./data на хосте
+      DATABASE_PATH: /app/data/seednox.db
+    volumes:
+      - ./data:/app/data
+    # Не открываем порты — бот работает через polling
