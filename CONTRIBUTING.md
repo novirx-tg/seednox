@@ -32,7 +32,7 @@
 - Любой код, касающийся криптографии, требует подробного описания в PR
 - Чувствительные данные не должны попадать в логи
 
-## Локальная разработка
+## Локальная разработка v1.0.0
 
 ```bash
 git clone https://github.com/novirx-tg/seednox.git
@@ -40,10 +40,13 @@ cd seednox
 python -m venv .venv
 .venv\Scripts\activate        # Windows
 pip install -r requirements.txt
-cp .env.example .env            # заполните BOT_TOKEN
-python -m src.main
+python -m src.gui.app
 ```
 
-## Code of Conduct
+---
 
-Будьте уважительны. Мы строим инструмент для защиты средств людей.
+## 🔗 Официальные ресурсы
+
+- 📢 **Telegram-канал**: [@seednox](https://t.me/seednox)
+- 🌐 **Официальный сайт**: [novirx.cyou/seednox/](https://novirx.cyou/seednox/)
+- 🐙 **Исходный код**: [github.com/novirx-tg/seednox](https://github.com/novirx-tg/seednox)
