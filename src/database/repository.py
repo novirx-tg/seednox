@@ -48,6 +48,7 @@ class Repository:
                 name TEXT NOT NULL,
                 encrypted_seed BLOB NOT NULL,
                 encrypted_note BLOB,
+                entry_type TEXT NOT NULL DEFAULT 'seed',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 FOREIGN KEY (telegram_id) REFERENCES users(telegram_id) ON DELETE CASCADE,
@@ -60,6 +61,7 @@ class Repository:
                 name TEXT NOT NULL,
                 encrypted_seed BLOB NOT NULL,
                 encrypted_note BLOB,
+                entry_type TEXT NOT NULL DEFAULT 'seed',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 FOREIGN KEY (telegram_id) REFERENCES users(telegram_id) ON DELETE CASCADE,
@@ -94,6 +96,9 @@ class Repository:
             "ALTER TABLE users ADD COLUMN duress_password_hash TEXT",
             "ALTER TABLE users ADD COLUMN risk_accepted_at TEXT",
             "ALTER TABLE wallets ADD COLUMN encrypted_note BLOB",
+            "ALTER TABLE wallets ADD COLUMN entry_type TEXT NOT NULL DEFAULT 'seed'",
+            "ALTER TABLE decoy_wallets ADD COLUMN encrypted_note BLOB",
+            "ALTER TABLE decoy_wallets ADD COLUMN entry_type TEXT NOT NULL DEFAULT 'seed'",
         ]
         for sql in migrations:
             try:
@@ -125,6 +130,7 @@ class Repository:
             name=row["name"],
             encrypted_seed=row["encrypted_seed"],
             encrypted_note=row["encrypted_note"],
+            entry_type=row["entry_type"] if row["entry_type"] else "seed",
             created_at=datetime.fromisoformat(row["created_at"]),
             updated_at=datetime.fromisoformat(row["updated_at"]),
         )
@@ -136,6 +142,7 @@ class Repository:
             name=row["name"],
             encrypted_seed=row["encrypted_seed"],
             encrypted_note=row["encrypted_note"],
+            entry_type=row["entry_type"] if row["entry_type"] else "seed",
             created_at=datetime.fromisoformat(row["created_at"]),
             updated_at=datetime.fromisoformat(row["updated_at"]),
         )
@@ -198,6 +205,7 @@ class Repository:
         name: str,
         encrypted_seed: bytes,
         encrypted_note: bytes | None = None,
+        entry_type: str = "seed",
         *,
         decoy: bool = False,
     ) -> Wallet | DecoyWallet:
@@ -207,10 +215,10 @@ class Repository:
         cursor = await self._connection.execute(
             f"""
             INSERT INTO {table}
-            (telegram_id, name, encrypted_seed, encrypted_note, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            (telegram_id, name, encrypted_seed, encrypted_note, entry_type, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (telegram_id, name, encrypted_seed, encrypted_note, now, now),
+            (telegram_id, name, encrypted_seed, encrypted_note, entry_type, now, now),
         )
         await self._connection.commit()
         getter = self.get_decoy_wallet if decoy else self.get_wallet

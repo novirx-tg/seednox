@@ -1,4 +1,4 @@
-# 📦 Релизы Seednox v1.0.0
+# 📦 Релизы Seednox
 
 Все официальные релизы и сборки публикуются на странице [GitHub Releases](https://github.com/novirx-tg/seednox/releases).
 
@@ -12,26 +12,43 @@
 
 ---
 
-## 💻 Сборка для Windows (x64)
+## 🗂 История релизов
 
-1. Перейдите в раздел [GitHub Releases v1.0.0](https://github.com/novirx-tg/seednox/releases/tag/v1.0.0).
-2. Скачайте официальный архив `Seednox-v1.0.0-Windows-x64.zip`.
-3. Распакуйте и запустите `Seednox-Windows-v1.0.0.exe`.
+### v1.0.1 — 2026-07-24
+- ✅ Универсальное хранилище: сид-фразы, пароли, приватные ключи, заметки, прочее.
+- 🛠 Исправлено сохранение `.env` — корректно работает и в `.exe`, и из исходников.
+- 🔄 Автоматическая миграция БД (новая колонка `entry_type`).
+
+### v1.0.0 — 2026-07-22
+- Первый официальный релиз. GUI Launcher для Windows x64.
+- Обход блокировок Telegram API, портативные `.snx` бэкапы, Docker/VPS поддержка.
+
+---
+
+## 💻 Установка — Windows x64 (готовый билд)
+
+1. Перейдите на страницу [GitHub Releases](https://github.com/novirx-tg/seednox/releases/latest).
+2. Скачайте архив `Seednox-v1.0.1-Windows-x64.zip`.
+3. Распакуйте и запустите `Seednox-Windows-v1.0.1.exe`.
+4. В разделе **«⚙️ Настройки»** вставьте `BOT_TOKEN` и нажмите **«💾 Сохранить»**.
+
+> **Файл `.env` создаётся автоматически рядом с `.exe`** — все настройки сохраняются туда.
 
 ---
 
 ## 🐧🍎 Мультиплатформенность
 
-Готовые сборки для Windows x64 доступны прямо сейчас. Готовые бинарные дистрибутивы для **Linux** и **macOS** находятся в разработке и запланированы для следующих версий.
+Готовые бинарные сборки для **Windows x64** доступны уже сейчас.  
+Сборки для **Linux** и **macOS** запланированы для следующих версий.
 
 ---
 
-## ⚡ Автономный запуск в Docker (24/7 VPS)
+## ⚡ Docker (24/7 VPS)
 
 ```bash
 git clone https://github.com/novirx-tg/seednox.git
 cd seednox
-git checkout v1.0.0
-cp .env.example .env
+git checkout v1.0.1
+cp .env.example .env   # заполните BOT_TOKEN
 docker compose up -d --build
 ```

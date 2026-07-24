@@ -2,7 +2,7 @@ import logging
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from src.bot.helpers import is_active, log_action, reply_locked, use_decoy
 from src.bot.keyboards import (
@@ -15,10 +15,11 @@ from src.bot.keyboards import (
 from src.bot.states import AddWallet, EditWallet, SearchWallet
 from src.config import get_settings
 from src.crypto import decrypt_seed, encrypt_seed
+from src.database.models import ENTRY_TYPES
 from src.database.repository import Repository
 from src.security.audit import AuditLogger
 from src.security.session import SessionManager
-from src.security.validators import validate_seed_phrase, validate_wallet_name
+from src.security.validators import validate_wallet_name
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -101,12 +102,31 @@ async def start_add_wallet(
     decoy = use_decoy(session, message.from_user.id)
     count = await repo.count_wallets(message.from_user.id, decoy=decoy)
     if count >= settings.max_wallets_per_user:
-        await message.answer(f"Лимит: {settings.max_wallets_per_user} кошельков.")
+        await message.answer(f"Лимит: {settings.max_wallets_per_user} записей.")
         return
     await state.update_data(decoy=decoy)
+    await state.set_state(AddWallet.entry_type)
+
+    # Клавиатура выбора типа
+    buttons = [
+        [InlineKeyboardButton(text=label, callback_data=f"etype:{key}")]
+        for key, label in ENTRY_TYPES.items()
+    ]
+    kb = InlineKeyboardMarkup(inline_keyboard=buttons)
+    await message.answer("📂 Выберите тип записи:", reply_markup=kb)
+
+
+@router.callback_query(AddWallet.entry_type, F.data.startswith("etype:"))
+async def process_entry_type(callback: CallbackQuery, state: FSMContext) -> None:
+    etype = callback.data.split(":")[1]
+    if etype not in ENTRY_TYPES:
+        await callback.answer("Неверный тип", show_alert=True)
+        return
+    await state.update_data(entry_type=etype)
     await state.set_state(AddWallet.name)
-    label = "ложный" if decoy else "кошелёк"
-    await message.answer(f"📝 Название {label}а:", reply_markup=cancel_keyboard())
+    label = ENTRY_TYPES[etype]
+    await callback.message.answer(f"📝 Название для {label}:", reply_markup=cancel_keyboard())
+    await callback.answer()
 
 
 @router.message(AddWallet.name, F.text == "❌ Отмена")
@@ -126,7 +146,7 @@ async def process_name(message: Message, state: FSMContext) -> None:
     await state.update_data(wallet_name=message.text.strip())
     await state.set_state(AddWallet.note)
     await message.answer(
-        "📝 Заметка (или «-» чтобы пропустить):",
+        "📝 Заметка / описание (или «-» чтобы пропустить):",
         reply_markup=cancel_keyboard(),
     )
 
@@ -137,22 +157,40 @@ async def process_note(message: Message, state: FSMContext) -> None:
     if note.strip() == "-":
         note = ""
     await state.update_data(wallet_note=note.strip())
+    data = await state.get_data()
+    etype = data.get("entry_type", "seed")
+    label = ENTRY_TYPES.get(etype, "данные")
+    prompts = {
+        "seed": "🌱 Введите сид-фразу (слова через пробел):",
+        "password": "🔑 Введите пароль:",
+        "private_key": "🗝 Введите приватный ключ:",
+        "note": "📝 Введите текст заметки:",
+        "other": "📦 Введите данные для сохранения:",
+    }
     await state.set_state(AddWallet.seed)
-    await message.answer("🔐 Введите сид-фразу:", reply_markup=cancel_keyboard())
+    await message.answer(prompts.get(etype, f"Введите {label}:"), reply_markup=cancel_keyboard())
 
 
 @router.message(AddWallet.seed, F.text, ~F.text.startswith("/"), ~F.text.in_(MENU_BUTTONS))
 async def process_seed(
     message: Message, state: FSMContext, repo: Repository, session: SessionManager, audit: AuditLogger,
 ) -> None:
-    seed = message.text or ""
+    secret = message.text or ""
     await message.delete()
-    result = validate_seed_phrase(seed)
-    if not result.valid:
-        await message.answer(f"❌ {result.error}")
+
+    # Базовая валидация: не пустое
+    if not secret.strip():
+        await message.answer("❌ Значение не может быть пустым.")
         return
 
     data = await state.get_data()
+    etype = data.get("entry_type", "seed")
+    # Для сид-фразы — нормализуем нижний регистр
+    if etype == "seed":
+        secret = secret.strip().lower()
+    else:
+        secret = secret.strip()
+
     telegram_id = message.from_user.id
     password = session.get_password(telegram_id)
     if password is None:
@@ -170,9 +208,9 @@ async def process_seed(
     enc_note = encrypt_seed(note_text, password, user.salt) if note_text else None
 
     try:
-        enc_seed = encrypt_seed(seed.strip().lower(), password, user.salt)
+        enc_seed = encrypt_seed(secret, password, user.salt)
         await repo.add_wallet(
-            telegram_id, data["wallet_name"], enc_seed, enc_note, decoy=decoy,
+            telegram_id, data["wallet_name"], enc_seed, enc_note, etype, decoy=decoy,
         )
     except Exception:
         logger.exception("encrypt error")
@@ -180,10 +218,11 @@ async def process_seed(
         await state.clear()
         return
 
+    label = ENTRY_TYPES.get(etype, "запись")
     await log_action(audit, telegram_id, "add_wallet", data["wallet_name"])
     await state.clear()
     await message.answer(
-        f"✅ «{data['wallet_name']}» сохранён!",
+        f"✅ {label} «{data['wallet_name']}» сохранена!",
         reply_markup=main_menu_keyboard(),
     )
 

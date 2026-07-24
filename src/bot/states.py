@@ -13,6 +13,7 @@ class Unlock(StatesGroup):
 
 
 class AddWallet(StatesGroup):
+    entry_type = State()
     name = State()
     note = State()
     seed = State()

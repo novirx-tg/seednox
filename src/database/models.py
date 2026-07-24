@@ -14,6 +14,16 @@ class User:
     risk_accepted_at: datetime | None = None
 
 
+# Типы записей
+ENTRY_TYPES = {
+    "seed": "🌱 Сид-фраза",
+    "password": "🔑 Пароль",
+    "private_key": "🗝 Приватный ключ",
+    "note": "📝 Заметка",
+    "other": "📦 Другое",
+}
+
+
 @dataclass
 class Wallet:
     id: int
@@ -23,6 +33,7 @@ class Wallet:
     created_at: datetime
     updated_at: datetime
     encrypted_note: bytes | None = None
+    entry_type: str = "seed"
 
 
 @dataclass
@@ -34,6 +45,7 @@ class DecoyWallet:
     created_at: datetime
     updated_at: datetime
     encrypted_note: bytes | None = None
+    entry_type: str = "seed"
 
 
 @dataclass

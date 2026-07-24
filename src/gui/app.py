@@ -220,7 +220,7 @@ class SeednoxApp(ctk.CTk):
         super().__init__()
 
         # Конфигурация окна
-        self.title("Seednox — PC Launcher & Local Vault v1.0.0")
+        self.title("Seednox — PC Launcher & Local Vault v1.0.1")
         self.geometry("1000x650")
         self.minsize(760, 520)
 
@@ -431,7 +431,7 @@ class SeednoxApp(ctk.CTk):
         # Информация о версии внизу
         license_label = ctk.CTkLabel(
             self.sidebar,
-            text="Seednox v1.0.0 • Open Source",
+            text="Seednox v1.0.1 • Open Source",
             font=ctk.CTkFont(family="Segoe UI", size=10),
             text_color=COLOR_TEXT_MUTED
         )
@@ -1896,14 +1896,15 @@ class SeednoxApp(ctk.CTk):
 
             # Перезагружаем переменные окружения и настройки
             from dotenv import load_dotenv
-            load_dotenv(override=True)
-            
+            env_path = _find_env_path()
+            load_dotenv(dotenv_path=env_path, override=True)
+
             # Сбрасываем кэш settings
             from src.config import get_settings
             get_settings.cache_clear()
             self.settings = get_settings()
 
-            messagebox.showinfo("Успех", "Настройки сохранены в .env и применены!")
+            messagebox.showinfo("Успех", f"Настройки сохранены!\n{env_path}")
 
         except Exception as e:
             logger.exception("Ошибка при сохранении настроек")
@@ -2193,21 +2194,35 @@ class SeednoxApp(ctk.CTk):
         run_async(self.repo.close())
         super().destroy()
 
+def _find_env_path() -> str:
+    """Надёжно находит .env файл: рядом с exe/app или в PROJECT_ROOT."""
+    # 1. Рядом с исполняемым файлом (для PyInstaller .exe)
+    if getattr(sys, 'frozen', False):
+        exe_dir = Path(sys.executable).parent
+        candidate = exe_dir / ".env"
+        if candidate.exists():
+            return str(candidate)
+        # Создаём рядом с exe если нет
+        return str(candidate)
+    # 2. PROJECT_ROOT (при запуске из исходников)
+    candidate = Path(PROJECT_ROOT) / ".env"
+    return str(candidate)
+
+
 def save_env_value(key: str, value: str):
     """Вспомогательная функция для добавления/обновления переменных в .env файле."""
-    env_path = os.path.join(PROJECT_ROOT, ".env")
+    env_path = _find_env_path()
     lines = []
     found = False
-    
+
     if os.path.exists(env_path):
         with open(env_path, "r", encoding="utf-8") as f:
             lines = f.readlines()
 
-    # Очищаем перенос строки
+    # Очищаем перенос строки и \r
     value_clean = value.replace("\n", "").replace("\r", "")
 
     for i, line in enumerate(lines):
-        # Ищем совпадение без учета пробелов
         line_strip = line.strip()
         if line_strip.startswith(f"{key}=") or line_strip.startswith(f"# {key}=") or line_strip.startswith(f"#{key}="):
             lines[i] = f"{key}={value_clean}\n"
@@ -2215,13 +2230,13 @@ def save_env_value(key: str, value: str):
             break
 
     if not found:
-        # Если не нашли, добавляем в конец файла
         if lines and not lines[-1].endswith("\n"):
             lines.append("\n")
         lines.append(f"{key}={value_clean}\n")
 
-    with open(env_path, "w", encoding="utf-8") as f:
+    with open(env_path, "w", encoding="utf-8", newline="\n") as f:
         f.writelines(lines)
+
 
 def main() -> None:
     # Создаем папку logs, data если нужно
