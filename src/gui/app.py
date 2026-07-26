@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 import asyncio
 import queue
 import logging
@@ -26,7 +27,14 @@ from src.security.backup import (
     wallet_to_backup_item,
     backup_item_to_bytes,
 )
+from src.security.memory import wipe as wipe_secret, collect as mem_collect
+from src.security.metadata import MetaCipher
 from src.gui.launcher_worker import BotLauncher
+
+# Через сколько миллисекунд автоматически очищать буфер обмена после копирования секрета
+CLIPBOARD_CLEAR_MS = 40_000
+# Как часто (мс) проверять простой для автоблокировки сейфа
+IDLE_CHECK_INTERVAL_MS = 5_000
 
 # Настройка системного логгера
 logging.basicConfig(level=logging.INFO)
@@ -235,10 +243,18 @@ class SeednoxApp(ctk.CTk):
 
         # Состояние локального сейфа
         self.vault_unlocked = False
-        self.vault_password = None
+        self.vault_password = None  # хранится как bytearray → можно затереть при блокировке
         self.vault_user_id = None
         self.vault_salt = None
         self.active_wallet = None
+        self.meta = None            # MetaCipher для шифрования названий/аудита (один ключ на сессию)
+
+        # Автоблокировка по простою
+        self._last_activity = time.monotonic()
+        self._idle_check_id = None
+        # Автоочистка буфера обмена
+        self._clip_clear_id = None
+        self._clip_value = None
 
         # Инициализация репозитория базы данных
         db_key = (
@@ -305,6 +321,46 @@ class SeednoxApp(ctk.CTk):
 
         # Начать опрос очереди логов подпроцесса бота
         self.after(100, self._process_logs)
+
+        # Любая активность пользователя сбрасывает таймер простоя (для автоблокировки сейфа)
+        for _seq in ("<Any-KeyPress>", "<Any-Button>", "<MouseWheel>"):
+            try:
+                self.bind_all(_seq, self._on_user_activity, add="+")
+            except Exception:
+                pass
+
+    # --- Автоблокировка сейфа по простою ---
+
+    def _on_user_activity(self, _event=None) -> None:
+        self._last_activity = time.monotonic()
+
+    def _start_idle_watch(self) -> None:
+        self._last_activity = time.monotonic()
+        if self._idle_check_id is None:
+            self._idle_check_id = self.after(IDLE_CHECK_INTERVAL_MS, self._check_idle)
+
+    def _stop_idle_watch(self) -> None:
+        if self._idle_check_id is not None:
+            try:
+                self.after_cancel(self._idle_check_id)
+            except Exception:
+                pass
+            self._idle_check_id = None
+
+    def _check_idle(self) -> None:
+        self._idle_check_id = None
+        if not self.vault_unlocked:
+            return
+        timeout = max(60, int(self.settings.session_timeout))
+        if time.monotonic() - self._last_activity >= timeout:
+            self._vault_lock(auto=True)
+            messagebox.showinfo(
+                "Сейф заблокирован",
+                f"Автоблокировка после {timeout // 60} мин простоя.\n"
+                "Введите мастер-пароль, чтобы снова открыть сейф.",
+            )
+            return
+        self._idle_check_id = self.after(IDLE_CHECK_INTERVAL_MS, self._check_idle)
 
     def _create_sidebar(self) -> None:
         """Создает левую боковую панель навигации."""
@@ -1044,12 +1100,31 @@ class SeednoxApp(ctk.CTk):
                 messagebox.showerror("Ошибка доступа", "Неверный мастер-пароль.")
                 return
 
-            # Успешный вход
+            # Успешный вход. Пароль держим в bytearray, чтобы затереть при блокировке.
             self.vault_unlocked = True
-            self.vault_password = password
+            self.vault_password = bytearray(password.encode("utf-8"))
             self.vault_user_id = tg_id
             self.vault_salt = user.salt
             self.active_wallet = None
+
+            # Ключ шифрования метаданных выводим ОДИН раз (Argon2 дорогой).
+            self.meta = MetaCipher(bytes(self.vault_password), user.salt)
+
+            # Ленивая миграция: шифруем ранее открытые названия и детали аудита.
+            try:
+                migrated = run_async(self.repo.encrypt_legacy_names(tg_id, self.meta))
+                run_async(self.repo.encrypt_legacy_audit(tg_id, self.meta))
+                if migrated:
+                    logger.info("Мигрировано (зашифровано) названий: %d", migrated)
+            except Exception:
+                logger.exception("Ошибка миграции метаданных при входе")
+
+            # Очищаем поле пароля в UI и запускаем автоблокировку по простою.
+            try:
+                self.entry_password.delete(0, tk.END)
+            except Exception:
+                pass
+            self._start_idle_watch()
 
             self._update_vault_ui()
 
@@ -1057,14 +1132,37 @@ class SeednoxApp(ctk.CTk):
             logger.exception("Ошибка авторизации в сейфе")
             messagebox.showerror("Ошибка входа", str(e))
 
-    def _vault_lock(self) -> None:
-        """Стирает ключи из памяти и закрывает сейф."""
+    def _vault_lock(self, auto: bool = False) -> None:
+        """Стирает секреты из памяти и закрывает сейф."""
+        # Останавливаем таймеры простоя и немедленно чистим буфер обмена.
+        self._stop_idle_watch()
+        self._flush_clipboard_now()
+
+        # Затираем ключ метаданных и мастер-пароль в памяти (bytearray → нули).
+        if self.meta is not None:
+            try:
+                self.meta.wipe()
+            except Exception:
+                pass
+            self.meta = None
+        wipe_secret(self.vault_password)
+
         self.vault_unlocked = False
         self.vault_password = None
         self.vault_user_id = None
         self.vault_salt = None
         self.active_wallet = None
+        mem_collect()
         self._update_vault_ui()
+
+    def _meta_name(self, wallet) -> str:
+        """Возвращает расшифрованное имя записи (или как есть, если сейф закрыт)."""
+        if self.meta is None:
+            return wallet.name
+        try:
+            return self.meta.decrypt(wallet.name) or ""
+        except Exception:
+            return "🔒 (не удалось расшифровать)"
 
     def _draw_vault_dashboard(self) -> None:
         """Отрисовывает интерфейс управления кошельками (после входа)."""
@@ -1177,15 +1275,22 @@ class SeednoxApp(ctk.CTk):
         for widget in self.wallets_scrollable.winfo_children():
             widget.destroy()
 
-        search_term = self.search_entry.get().strip() or None
+        search_term = (self.search_entry.get().strip() or "").lower()
 
         try:
-            wallets = run_async(self.repo.get_wallets(self.vault_user_id, search=search_term))
+            # Названия зашифрованы, поэтому фильтрацию и сортировку делаем в памяти
+            # после расшифровки через MetaCipher (см. repository.get_wallets).
+            wallets = run_async(self.repo.get_wallets(self.vault_user_id))
         except Exception as e:
             logger.exception("Ошибка при загрузке списка кошельков")
             return
 
-        if not wallets:
+        decorated = [(self._meta_name(w), w) for w in wallets]
+        if search_term:
+            decorated = [(n, w) for (n, w) in decorated if search_term in n.lower()]
+        decorated.sort(key=lambda t: t[0].lower())
+
+        if not decorated:
             lbl_empty = ctk.CTkLabel(
                 self.wallets_scrollable,
                 text="Кошельки не найдены",
@@ -1195,7 +1300,7 @@ class SeednoxApp(ctk.CTk):
             lbl_empty.pack(pady=20)
             return
 
-        for wallet in wallets:
+        for display_name, wallet in decorated:
             # Создаем строчку кошелька
             row_frame = ctk.CTkFrame(self.wallets_scrollable, fg_color=COLOR_CARD, height=45, corner_radius=6)
             row_frame.pack(fill="x", pady=4, ipady=5)
@@ -1203,7 +1308,7 @@ class SeednoxApp(ctk.CTk):
 
             lbl_name = ctk.CTkLabel(
                 row_frame,
-                text=wallet.name,
+                text=display_name,
                 font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
                 text_color=COLOR_TEXT
             )
@@ -1264,10 +1369,10 @@ class SeednoxApp(ctk.CTk):
         content_frame = ctk.CTkFrame(self.right_pane, fg_color="transparent")
         content_frame.pack(fill="both", expand=True, padx=20, pady=20)
 
-        # Название
+        # Название (расшифровываем метаданные)
         name_lbl = ctk.CTkLabel(
             content_frame,
-            text=self.active_wallet.name,
+            text=self._meta_name(self.active_wallet),
             font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"),
             text_color=COLOR_TEXT
         )
@@ -1381,7 +1486,52 @@ class SeednoxApp(ctk.CTk):
     def _copy_to_clipboard(self, text: str) -> None:
         self.clipboard_clear()
         self.clipboard_append(text)
-        messagebox.showinfo("Успех", "Сид-фраза успешно скопирована в буфер обмена!")
+        self._clip_value = text
+        # Перезапускаем таймер автоочистки.
+        if self._clip_clear_id is not None:
+            try:
+                self.after_cancel(self._clip_clear_id)
+            except Exception:
+                pass
+        self._clip_clear_id = self.after(CLIPBOARD_CLEAR_MS, self._do_clear_clipboard)
+        secs = CLIPBOARD_CLEAR_MS // 1000
+        messagebox.showinfo(
+            "Скопировано",
+            f"Скопировано в буфер обмена.\n"
+            f"⚠️ Буфер автоматически очистится через {secs} сек. "
+            "Вставьте значение сейчас.",
+        )
+
+    def _do_clear_clipboard(self) -> None:
+        """Очищает буфер, но только если там всё ещё лежит наш секрет."""
+        self._clip_clear_id = None
+        if self._clip_value is None:
+            return
+        try:
+            current = None
+            try:
+                current = self.clipboard_get()
+            except Exception:
+                current = None
+            # Не затираем то, что пользователь скопировал уже после нас.
+            if current is None or current == self._clip_value:
+                self.clipboard_clear()
+                self.clipboard_append("")
+        except Exception:
+            pass
+        finally:
+            self._clip_value = None
+
+    def _flush_clipboard_now(self) -> None:
+        """Немедленно очищает отложенный секрет из буфера (при блокировке/закрытии)."""
+        if self._clip_clear_id is not None:
+            try:
+                self.after_cancel(self._clip_clear_id)
+            except Exception:
+                pass
+            self._clip_clear_id = None
+        if self._clip_value is not None:
+            self._do_clear_clipboard()
 
     def _save_note(self, old_note: str) -> None:
         """Перезаписывает зашифрованную заметку в БД."""
@@ -1405,7 +1555,7 @@ class SeednoxApp(ctk.CTk):
         """Удаляет кошелек из базы данных после подтверждения."""
         if not messagebox.askyesno(
             "Подтверждение",
-            f"Вы уверены, что хотите удалить кошелёк '{self.active_wallet.name}'?\nЭто действие необратимо!"
+            f"Вы уверены, что хотите удалить кошелёк '{self._meta_name(self.active_wallet)}'?\nЭто действие необратимо!"
         ):
             return
 
@@ -1473,14 +1623,25 @@ class SeednoxApp(ctk.CTk):
                 return
 
             try:
-                # Шифруем
+                # Проверка уникальности имени в памяти (в БД имена зашифрованы,
+                # поэтому SQL UNIQUE на них не сработает).
+                existing = run_async(self.repo.get_wallets(self.vault_user_id))
+                existing_names = {self._meta_name(w).strip().lower() for w in existing}
+                if name.lower() in existing_names:
+                    messagebox.showerror(
+                        "Дубликат", f"Запись с названием «{name}» уже существует.", parent=dialog,
+                    )
+                    return
+
+                # Шифруем секрет, заметку и само название.
                 enc_seed = encrypt_seed(seed, self.vault_password, self.vault_salt)
                 enc_note = encrypt_seed(note, self.vault_password, self.vault_salt) if note else None
+                enc_name = self.meta.encrypt(name)
 
                 # Добавляем в БД
                 run_async(self.repo.add_wallet(
                     telegram_id=self.vault_user_id,
-                    name=name,
+                    name=enc_name,
                     encrypted_seed=enc_seed,
                     encrypted_note=enc_note
                 ))
@@ -2107,6 +2268,12 @@ class SeednoxApp(ctk.CTk):
                 return
 
             count = run_async(self.repo.import_wallets(self.vault_user_id, items))
+            # Импортированные из старых бэкапов открытые названия сразу шифруем.
+            try:
+                if self.meta is not None:
+                    run_async(self.repo.encrypt_legacy_names(self.vault_user_id, self.meta))
+            except Exception:
+                logger.exception("Ошибка шифрования названий после импорта")
             messagebox.showinfo("Успех", f"Успешно импортировано {count} кошельков из .snx файла!")
             self._load_wallets()
 
@@ -2189,6 +2356,14 @@ class SeednoxApp(ctk.CTk):
 
     def destroy(self) -> None:
         """Перегрузка для корректной остановки бота при закрытии окна."""
+        # Затираем секреты и чистим буфер обмена перед выходом.
+        try:
+            self._flush_clipboard_now()
+            if self.meta is not None:
+                self.meta.wipe()
+            wipe_secret(self.vault_password)
+        except Exception:
+            pass
         if self.launcher.is_running():
             self.launcher.stop()
         run_async(self.repo.close())
