@@ -10,7 +10,8 @@ permissions:
   packages: write
 
 jobs:
-  build-and-release:
+  test:
+    name: Run Quality Gate Tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -22,39 +23,68 @@ jobs:
 
       - name: Install dependencies
         run: |
+          python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install sqlcipher3 || true
 
-      - name: Generate checksums
+      - name: Run unit tests
         run: |
-          find src run.py requirements.txt Dockerfile docker-compose.yml -type f | sort | xargs sha256sum > SHA256SUMS.txt
+          python -m unittest discover -s tests -v
 
-      - name: Build Docker image
-        run: docker build -t seednox:${{ github.ref_name }} .
+  build-release:
+    name: Build Windows Installer & Release
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
 
-      - name: Docker image checksum
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
         run: |
-          docker save seednox:${{ github.ref_name }} | sha256sum | awk '{print $1"  seednox-'${{ github.ref_name }}'.tar"}' >> SHA256SUMS.txt
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller pillow
+
+      - name: Generate App Icon (.ico)
+        run: |
+          python -c "from PIL import Image; img = Image.open('assets/logo_clean.png'); img.save('assets/app.ico', format='ICO', sizes=[(256, 256), (128, 128), (64, 64), (48, 48), (32, 32), (16, 16)])"
+
+      - name: Build PyInstaller Bundle
+        run: |
+          pyinstaller Seednox-Windows-v1.0.2.spec
+
+      - name: Compile Inno Setup Installer
+        run: |
+          iscc Seednox-Setup.iss
+
+      - name: Create Portable ZIP Archive
+        run: |
+          Compress-Archive -Path dist\Seednox-Windows-v1.0.2\* -DestinationPath dist\Seednox-v1.0.2-Windows-x64.zip -Force
+
+      - name: Generate Checksums (SHA256)
+        run: |
+          Get-FileHash dist\Seednox-Setup-v1.0.2.exe, dist\Seednox-v1.0.2-Windows-x64.zip -Algorithm SHA256 | Format-List > SHA256SUMS.txt
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: SHA256SUMS.txt
+          files: |
+            dist/Seednox-Setup-v1.0.2.exe
+            dist/Seednox-v1.0.2-Windows-x64.zip
+            SHA256SUMS.txt
           generate_release_notes: true
           body: |
-            ## Проверка целостности
+            ## 📦 Официальные сборки Seednox v1.0.2
 
-            Сверьте хеши в `SHA256SUMS.txt` после скачивания.
+            - 🚀 **`Seednox-Setup-v1.0.2.exe`** — Установочный мастер для Windows (рекомендуется).
+            - 📁 **`Seednox-v1.0.2-Windows-x64.zip`** — Портативная версия без установки.
 
-            ## Docker
+            ## 🔒 Проверка целостности (SHA256)
 
-            ```bash
-            git clone https://github.com/novirx-tg/seednox.git
-            cd seednox
-            git checkout ${{ github.ref_name }}
-            docker compose up -d --build
+            Сверьте хеши в `SHA256SUMS.txt` после скачивания:
+            ```powershell
+            Get-FileHash Seednox-Setup-v1.0.2.exe -Algorithm SHA256
             ```
-
-            ## Self-host
-
-            Исходный код открыт: https://github.com/novirx-tg/seednox

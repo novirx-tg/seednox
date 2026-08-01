@@ -20,6 +20,11 @@ wheels/
 .installed.cfg
 *.egg
 
+# Binaries & Bundles
+*.zip
+*.tar.gz
+*.exe
+
 # Virtual environments
 .venv/
 venv/
@@ -41,9 +46,6 @@ data/
 # OS
 .DS_Store
 Thumbs.db
-
-# PyInstaller
-*.spec
 
 # Logs
 *.log

@@ -28,13 +28,15 @@ async def open_database(db_path: Path, encryption_key: str | None) -> aiosqlite.
             conn = await aiosqlite.connect(db_path, connector=connector)
             logger.info("SQLCipher: база зашифрована")
             return conn
-        except ImportError:
-            logger.warning(
-                "sqlcipher3 не установлен — БД без шифрования файла. "
-                "Для SQLCipher: pip install sqlcipher3 (Linux/Docker)"
-            )
+        except ImportError as exc:
+            logger.error("DB_ENCRYPTION_KEY задан, но модуль sqlcipher3 не установлен")
+            raise RuntimeError(
+                "DB_ENCRYPTION_KEY задан, но модуль 'sqlcipher3' не установлен. "
+                "Установите sqlcipher3 или удалите DB_ENCRYPTION_KEY для работы в открытом режиме."
+            ) from exc
         except Exception as exc:
-            logger.error("SQLCipher ошибка: %s — fallback на SQLite", exc)
+            logger.error("Ошибка открытия зашифрованной базы SQLCipher: %s", exc)
+            raise RuntimeError(f"Не удалось открыть зашифрованную базу SQLCipher: {exc}") from exc
 
     conn = await aiosqlite.connect(db_path)
     return conn

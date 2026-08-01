@@ -14,6 +14,15 @@
 
 ## 🗂 История релизов
 
+### v1.0.2 — 2026-08-01
+- 🚀 **Официальный Установщик Windows (Setup Wizard)**: добавлен `Seednox-Setup-v1.0.2.exe` для автоматической установки с деинсталлятором.
+- 🛡 **Комплексный фикс уязвимостей (PR #2 & Аудит)**:
+  - Fail-safe защита `SQLCipher` при заданном `DB_ENCRYPTION_KEY`.
+  - Усиленный контроль доступа Telegram-бота (`ALLOWED_USER_IDS`).
+  - Запуск Docker от non-root пользователя `appuser`.
+- 🧪 **CI Quality Gate**: 100% покрытие автотестами (`pytest` / `unittest`) в каталоге `tests/`.
+- 📦 Закрепление точных версий зависимостей в `requirements.txt` и очистка Git от бинарников.
+
 ### v1.0.1 — 2026-07-24
 - ✅ Универсальное хранилище: сид-фразы, пароли, приватные ключи, заметки, прочее.
 - 🛠 Исправлено сохранение `.env` — корректно работает и в `.exe`, и из исходников.
@@ -25,21 +34,27 @@
 
 ---
 
-## 💻 Установка — Windows x64 (готовый билд)
+## 💻 Установка — Windows x64
 
-1. Перейдите на страницу [GitHub Releases](https://github.com/novirx-tg/seednox/releases/latest).
-2. Скачайте архив `Seednox-v1.0.1-Windows-x64.zip`.
-3. Распакуйте и запустите `Seednox-Windows-v1.0.1.exe`.
-4. В разделе **«⚙️ Настройки»** вставьте `BOT_TOKEN` и нажмите **«💾 Сохранить»**.
+### Вариант 1. Установочный мастер (Рекомендуется)
+1. Перейдите на страницу [GitHub Releases v1.0.2](https://github.com/novirx-tg/seednox/releases/tag/v1.0.2).
+2. Скачайте программу установки `Seednox-Setup-v1.0.2.exe`.
+3. Запустите инсталлятор и следуйте подсказкам мастера.
 
-> **Файл `.env` создаётся автоматически рядом с `.exe`** — все настройки сохраняются туда.
+### Вариант 2. Портативная версией (.zip)
+1. Скачайте архив `Seednox-v1.0.2-Windows-x64.zip` и `SHA256SUMS.txt`.
+2. Сверьте хеш в PowerShell:
+   ```powershell
+   Get-FileHash Seednox-v1.0.2-Windows-x64.zip -Algorithm SHA256
+   ```
+3. Распакуйте и запустите `Seednox-Windows-v1.0.2.exe`.
 
----
-
-## 🐧🍎 Мультиплатформенность
-
-Готовые бинарные сборки для **Windows x64** доступны уже сейчас.  
-Сборки для **Linux** и **macOS** запланированы для следующих версий.
+> **Самостоятельная сборка из исходников**:
+> ```powershell
+> pip install -r requirements.txt pyinstaller pillow
+> pyinstaller Seednox-Windows-v1.0.2.spec
+> iscc Seednox-Setup.iss
+> ```
 
 ---
 
@@ -48,7 +63,7 @@
 ```bash
 git clone https://github.com/novirx-tg/seednox.git
 cd seednox
-git checkout v1.0.1
+git checkout v1.0.2
 cp .env.example .env   # заполните BOT_TOKEN
 docker compose up -d --build
 ```

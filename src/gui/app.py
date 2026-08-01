@@ -48,29 +48,25 @@ COLOR_WARNING = "#F59E0B"       # Янтарно-золотой
 COLOR_BORDER = "#44264A"        # Тонкий аметистовый контур
 
 def load_logo_image(size: tuple[int, int]) -> ctk.CTkImage | None:
-    """Загружает очищенный логотип приложения из папки дизайн/design (с прозрачностью вместо белых краев)."""
+    """Загружает очищенный логотип приложения из папки assets."""
     try:
         from PIL import Image
-        logo_path = None
-        for root_dir, _, files in os.walk(str(PROJECT_ROOT)):
-            # Сначала проверяем готовый прозрачный PNG
-            for f in files:
-                if f == 'logo_clean.png':
-                    logo_path = Path(root_dir) / f
+        candidates = [
+            PROJECT_ROOT / "assets" / "logo_clean.png",
+            PROJECT_ROOT / "assets" / "photo_2026-06-08_09-07-36.jpg",
+        ]
+        logo_path = next((p for p in candidates if p.exists()), None)
+        if not logo_path:
+            for root_dir, _, files in os.walk(str(PROJECT_ROOT)):
+                for f in files:
+                    if f == 'logo_clean.png':
+                        logo_path = Path(root_dir) / f
+                        break
+                if logo_path:
                     break
-            if logo_path:
-                break
-            # Если нет PNG, берем исходный JPG
-            for f in files:
-                if f.endswith('.jpg') and 'photo_2026-06-08' in f:
-                    logo_path = Path(root_dir) / f
-                    break
-            if logo_path:
-                break
 
         if logo_path and logo_path.exists():
             img = Image.open(logo_path).convert("RGBA")
-            # Если загружен JPG с белым фоном по углам — заменяем белые пиксели на прозрачность
             if logo_path.suffix.lower() in ['.jpg', '.jpeg']:
                 data = img.load()
                 w, h = img.size
@@ -220,7 +216,7 @@ class SeednoxApp(ctk.CTk):
         super().__init__()
 
         # Конфигурация окна
-        self.title("Seednox — PC Launcher & Local Vault v1.0.1")
+        self.title("Seednox — PC Launcher & Local Vault v1.0.2")
         self.geometry("1000x650")
         self.minsize(760, 520)
 
@@ -431,7 +427,7 @@ class SeednoxApp(ctk.CTk):
         # Информация о версии внизу
         license_label = ctk.CTkLabel(
             self.sidebar,
-            text="Seednox v1.0.1 • Open Source",
+            text="Seednox v1.0.2 • Open Source",
             font=ctk.CTkFont(family="Segoe UI", size=10),
             text_color=COLOR_TEXT_MUTED
         )

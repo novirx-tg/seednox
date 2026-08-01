@@ -35,6 +35,15 @@ async def main() -> None:
         logger.error("BOT_TOKEN не задан. Скопируйте .env.example → .env")
         sys.exit(1)
 
+    if not settings.allowed_user_ids:
+        logger.warning(
+            "⚠️ ВНИМАНИЕ: ALLOWED_USER_IDS не задан в .env! "
+            "Бот доступен ЛЮБОМУ пользователю Telegram. "
+            "Настоятельно рекомендуется ограничить доступ: ALLOWED_USER_IDS=your_telegram_id"
+        )
+    else:
+        logger.info("Контроль доступа активен для %d Telegram ID", len(settings.allowed_user_ids))
+
     db_key = (
         settings.db_encryption_key.get_secret_value()
         if settings.db_encryption_key
