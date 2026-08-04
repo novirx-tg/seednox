@@ -228,15 +228,20 @@ class Repository:
     async def get_wallets(
         self, telegram_id: int, *, decoy: bool = False, search: str | None = None,
     ) -> list[Wallet] | list[DecoyWallet]:
+        """Возвращает все записи пользователя.
+
+        Внимание: поиск по названию больше НЕ выполняется на уровне SQL —
+        названия хранятся зашифрованными, поэтому фильтрацию по подстроке
+        и сортировку по расшифрованному имени делает вызывающий код
+        (после расшифровки через MetaCipher). Параметр ``search`` сохранён
+        для обратной совместимости и игнорируется.
+        """
         assert self._connection is not None
         table = "decoy_wallets" if decoy else "wallets"
-        query = f"SELECT * FROM {table} WHERE telegram_id = ?"
-        params: list = [telegram_id]
-        if search:
-            query += " AND name LIKE ?"
-            params.append(f"%{search}%")
-        query += " ORDER BY name"
-        cursor = await self._connection.execute(query, params)
+        cursor = await self._connection.execute(
+            f"SELECT * FROM {table} WHERE telegram_id = ? ORDER BY id",
+            (telegram_id,),
+        )
         rows = await cursor.fetchall()
         mapper = self._row_to_decoy if decoy else self._row_to_wallet
         return [mapper(row) for row in rows]
@@ -336,6 +341,63 @@ class Repository:
             except Exception:
                 pass
         return count
+
+    # --- Ленивая миграция метаданных (шифрование названий и аудит-лога) ---
+
+    async def encrypt_legacy_names(self, telegram_id: int, meta, *, decoy: bool = False) -> int:
+        """Шифрует ещё не зашифрованные названия записей ключом ``meta``.
+
+        Вызывается при разблокировке. Обрабатывает только одну таблицу
+        (реальную ИЛИ decoy), чтобы имена шифровались тем же ключом, что и
+        секреты в этой таблице (у duress-режима ключ другой).
+        Возвращает число мигрированных записей.
+        """
+        from src.security.metadata import is_encrypted
+
+        assert self._connection is not None
+        table = "decoy_wallets" if decoy else "wallets"
+        cursor = await self._connection.execute(
+            f"SELECT id, name FROM {table} WHERE telegram_id = ?", (telegram_id,),
+        )
+        rows = await cursor.fetchall()
+        migrated = 0
+        for row in rows:
+            if is_encrypted(row["name"]):
+                continue
+            enc = meta.encrypt(row["name"])
+            await self._connection.execute(
+                f"UPDATE {table} SET name = ? WHERE id = ?", (enc, row["id"]),
+            )
+            migrated += 1
+        if migrated:
+            await self._connection.commit()
+        return migrated
+
+    async def encrypt_legacy_audit(self, telegram_id: int, meta) -> int:
+        """Шифрует ещё не зашифрованные ``details`` в аудит-логе ключом ``meta``.
+
+        Только для реального (не duress) режима. Возвращает число записей.
+        """
+        from src.security.metadata import is_encrypted
+
+        assert self._connection is not None
+        cursor = await self._connection.execute(
+            "SELECT id, details FROM audit_log WHERE telegram_id = ? AND details IS NOT NULL",
+            (telegram_id,),
+        )
+        rows = await cursor.fetchall()
+        migrated = 0
+        for row in rows:
+            if is_encrypted(row["details"]):
+                continue
+            enc = meta.encrypt(row["details"])
+            await self._connection.execute(
+                "UPDATE audit_log SET details = ? WHERE id = ?", (enc, row["id"]),
+            )
+            migrated += 1
+        if migrated:
+            await self._connection.commit()
+        return migrated
 
     # --- Rate limit (persistent) ---
 

@@ -45,8 +45,9 @@ def _decrypt_seed_with_argon_params(
     nonce = encrypted_data[:12]
     ciphertext = encrypted_data[12:]
 
+    secret_bytes = bytes(password) if isinstance(password, (bytes, bytearray)) else password.encode("utf-8")
     raw_key = low_level.hash_secret_raw(
-        secret=password.encode("utf-8"),
+        secret=secret_bytes,
         salt=salt[:16],
         time_cost=time_cost,
         memory_cost=memory_cost,

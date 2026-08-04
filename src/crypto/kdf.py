@@ -8,6 +8,16 @@ from cryptography.hazmat.primitives import hashes
 
 from src.config import get_settings
 
+# Секреты (пароль) могут приходить как str, либо как bytes/bytearray —
+# последнее позволяет вызывающему коду затирать их в памяти после использования.
+SecretLike = str | bytes | bytearray
+
+
+def _to_bytes(secret: SecretLike) -> bytes:
+    if isinstance(secret, (bytes, bytearray)):
+        return bytes(secret)
+    return secret.encode("utf-8")
+
 
 def _hasher() -> PasswordHasher:
     s = get_settings()
@@ -24,15 +34,15 @@ def generate_salt() -> bytes:
     return os.urandom(32)
 
 
-def hash_password(password: str) -> str:
+def hash_password(password: SecretLike) -> str:
     """Хеширует мастер-пароль для верификации (не для шифрования)."""
-    return _hasher().hash(password)
+    return _hasher().hash(_to_bytes(password))
 
 
-def verify_password(password_hash: str, password: str) -> bool:
+def verify_password(password_hash: str, password: SecretLike) -> bool:
     hasher = _hasher()
     try:
-        hasher.verify(password_hash, password)
+        hasher.verify(password_hash, _to_bytes(password))
         if hasher.check_needs_rehash(password_hash):
             return True
         return True
@@ -40,14 +50,14 @@ def verify_password(password_hash: str, password: str) -> bool:
         return False
 
 
-def derive_key(password: str, salt: bytes) -> bytes:
+def derive_key(password: SecretLike, salt: bytes) -> bytes:
     """
     Деривация ключа шифрования из пароля и соли.
     Argon2id → HKDF-SHA256 → 32-байтный AES-ключ.
     """
     s = get_settings()
     raw_key = low_level.hash_secret_raw(
-        secret=password.encode("utf-8"),
+        secret=_to_bytes(password),
         salt=salt[:16],
         time_cost=s.argon2_time_cost,
         memory_cost=s.argon2_memory_cost,

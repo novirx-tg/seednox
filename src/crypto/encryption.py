@@ -1,9 +1,9 @@
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-from .kdf import derive_key, generate_nonce
+from .kdf import SecretLike, derive_key, generate_nonce
 
 
-def encrypt_seed(seed_phrase: str, password: str, salt: bytes) -> bytes:
+def encrypt_seed(seed_phrase: str, password: SecretLike, salt: bytes) -> bytes:
     """
     Шифрует сид-фразу AES-256-GCM.
     Формат: nonce (12) + ciphertext + tag (включён в ciphertext GCM).
@@ -15,7 +15,7 @@ def encrypt_seed(seed_phrase: str, password: str, salt: bytes) -> bytes:
     return nonce + ciphertext
 
 
-def decrypt_seed(encrypted_data: bytes, password: str, salt: bytes) -> str:
+def decrypt_seed(encrypted_data: bytes, password: SecretLike, salt: bytes) -> str:
     """Расшифровывает сид-фразу. Выбрасывает исключение при неверном пароле."""
     if len(encrypted_data) < 13:
         raise ValueError("Некорректные зашифрованные данные")
