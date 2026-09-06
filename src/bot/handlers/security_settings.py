@@ -1,3 +1,5 @@
+import asyncio
+
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
@@ -203,7 +205,7 @@ async def restore_password(
         await state.clear()
         return
     try:
-        payload = decrypt_backup_file(data["backup_bytes"], password, user.salt)
+        payload = await asyncio.to_thread(decrypt_backup_file, data["backup_bytes"], password, user.salt)
     except Exception:
         await message.answer("❌ Неверный пароль или повреждённый файл.")
         await state.clear()

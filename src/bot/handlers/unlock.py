@@ -70,7 +70,7 @@ async def process_unlock_password(
     if is_duress:
         session.unlock(telegram_id, password, is_duress=True, pin_required=False)
         await state.clear()
-        await audit.log(telegram_id, "unlock_duress")
+        await audit.log(telegram_id, "unlock")
         await message.answer("🔓 Сейф разблокирован.", reply_markup=main_menu_keyboard(), parse_mode="HTML")
         return
 

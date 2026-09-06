@@ -1,11 +1,11 @@
 ; Seednox Windows Installer Script (Inno Setup 6+)
-; Generates standard Windows installer: Seednox-Setup-v1.0.2.exe
+; Generates standard Windows installer: Seednox-Setup-v1.0.3.exe
 
 #define MyAppName "Seednox"
-#define MyAppVersion "1.0.2"
+#define MyAppVersion "1.0.3"
 #define MyAppPublisher "novirx-tg"
 #define MyAppURL "https://github.com/novirx-tg/seednox"
-#define MyAppExeName "Seednox-Windows-v1.0.2.exe"
+#define MyAppExeName "Seednox-Windows-v1.0.3.exe"
 
 [Setup]
 AppId={{8B8A62A1-94B6-4E8E-8761-FDF97EFA4B12}}
@@ -20,7 +20,7 @@ DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 LicenseFile=LICENSE
 OutputDir=dist
-OutputBaseFilename=Seednox-Setup-v1.0.2
+OutputBaseFilename=Seednox-Setup-v1.0.3
 SetupIconFile=assets\app.ico
 UninstallDisplayIcon={app}\assets\app.ico
 Compression=lzma2/ultra64
@@ -37,7 +37,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-Source: "dist\Seednox-Windows-v1.0.2\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "dist\Seednox-Windows-v1.0.3\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "assets\app.ico"; DestDir: "{app}\assets"; Flags: ignoreversion
 
 [Icons]

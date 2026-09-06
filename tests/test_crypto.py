@@ -74,6 +74,47 @@ class TestCrypto(unittest.TestCase):
         with self.assertRaises(ValueError):
             decrypt_seed(b"short", password, generate_salt())
 
+    def test_derive_key_and_encryption_with_bytearray(self):
+        password_str = "CorrectHorseBytearray123!"
+        password_ba = bytearray(password_str.encode("utf-8"))
+        salt = generate_salt()
+
+        key_str = derive_key(password_str, salt)
+        key_ba = derive_key(password_ba, salt)
+        self.assertEqual(key_str, key_ba)
+
+        seed = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
+        encrypted = encrypt_seed(seed, password_ba, salt)
+        decrypted = decrypt_seed(encrypted, password_ba, salt)
+        self.assertEqual(decrypted, seed)
+
+    def test_backup_snx2_and_backward_compatibility(self):
+        from src.security.backup import create_encrypted_backup, decrypt_backup_file, MAGIC_HEADER_V2, MAGIC_HEADER_V1
+        wallets = [{"name": "Test Wallet", "encrypted_seed": "abcd", "encrypted_note": None}]
+        password = "BackupSuperPassword777!"
+        salt = generate_salt()
+
+        # Тест SNX2 создания и мгновенной расшифровки
+        backup_snx2 = create_encrypted_backup(wallets, password, salt)
+        self.assertTrue(backup_snx2.startswith(MAGIC_HEADER_V2))
+        self.assertGreaterEqual(len(backup_snx2), 42)
+
+        restored_snx2 = decrypt_backup_file(backup_snx2, password)
+        self.assertEqual(len(restored_snx2["wallets"]), 1)
+        self.assertEqual(restored_snx2["wallets"][0]["name"], "Test Wallet")
+
+        # Тест обратной совместимости с SNX1
+        import base64, json
+        from datetime import datetime, timezone
+        payload = {"version": 1, "exported_at": datetime.now(timezone.utc).isoformat(), "wallets": wallets}
+        plaintext = base64.b64encode(json.dumps(payload).encode("utf-8")).decode("ascii")
+        encrypted_snx1 = encrypt_seed(plaintext, password, salt)
+        backup_snx1 = MAGIC_HEADER_V1 + salt[:32] + encrypted_snx1
+
+        restored_snx1 = decrypt_backup_file(backup_snx1, password)
+        self.assertEqual(len(restored_snx1["wallets"]), 1)
+        self.assertEqual(restored_snx1["wallets"][0]["name"], "Test Wallet")
+
 
 if __name__ == "__main__":
     unittest.main()

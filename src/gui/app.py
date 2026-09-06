@@ -4,6 +4,8 @@ import asyncio
 import queue
 import logging
 import shutil
+import threading
+import gc
 from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox
@@ -216,9 +218,10 @@ class SeednoxApp(ctk.CTk):
         super().__init__()
 
         # Конфигурация окна
-        self.title("Seednox — PC Launcher & Local Vault v1.0.2")
+        self.title("Seednox — PC Launcher & Local Vault v1.0.3")
         self.geometry("1000x650")
         self.minsize(760, 520)
+        self.protocol("WM_DELETE_WINDOW", self._on_window_close)
 
         # Установка темы
         ctk.set_appearance_mode("dark")
@@ -427,7 +430,7 @@ class SeednoxApp(ctk.CTk):
         # Информация о версии внизу
         license_label = ctk.CTkLabel(
             self.sidebar,
-            text="Seednox v1.0.2 • Open Source",
+            text="Seednox v1.0.3 • Open Source",
             font=ctk.CTkFont(family="Segoe UI", size=10),
             text_color=COLOR_TEXT_MUTED
         )
@@ -1040,9 +1043,13 @@ class SeednoxApp(ctk.CTk):
                 messagebox.showerror("Ошибка доступа", "Неверный мастер-пароль.")
                 return
 
-            # Успешный вход
+            # Успешный вход: сохраняем пароль в изменяемом bytearray для zeroize очистки
             self.vault_unlocked = True
-            self.vault_password = password
+            self.vault_password = bytearray(password.encode("utf-8"))
+            try:
+                self.entry_password.delete(0, tk.END)
+            except Exception:
+                pass
             self.vault_user_id = tg_id
             self.vault_salt = user.salt
             self.active_wallet = None
@@ -1054,13 +1061,26 @@ class SeednoxApp(ctk.CTk):
             messagebox.showerror("Ошибка входа", str(e))
 
     def _vault_lock(self) -> None:
-        """Стирает ключи из памяти и закрывает сейф."""
+        """Стирает ключи из памяти (Zeroize RAM) и закрывает сейф."""
+        if isinstance(self.vault_password, bytearray):
+            for i in range(len(self.vault_password)):
+                self.vault_password[i] = 0
+            self.vault_password.clear()
         self.vault_unlocked = False
         self.vault_password = None
         self.vault_user_id = None
         self.vault_salt = None
         self.active_wallet = None
+        gc.collect()
         self._update_vault_ui()
+
+    def _on_window_close(self) -> None:
+        """Безопасно зануляет секреты в RAM и завершает работу приложения."""
+        try:
+            self._vault_lock()
+        except Exception:
+            pass
+        self.destroy()
 
     def _draw_vault_dashboard(self) -> None:
         """Отрисовывает интерфейс управления кошельками (после входа)."""
@@ -2049,7 +2069,7 @@ class SeednoxApp(ctk.CTk):
             messagebox.showerror("Ошибка экспорта", str(e))
 
     def _import_snx_backup(self) -> None:
-        """Импортирует кошельки из файла .snx в текущий профиль."""
+        """Импортирует кошельки из файла .snx в текущий профиль в фоновом потоке без зависания UI."""
         if not self.vault_unlocked:
             messagebox.showerror("Ошибка доступа", "Сначала откройте локальный сейф для импорта кошельков!")
             return
@@ -2062,53 +2082,73 @@ class SeednoxApp(ctk.CTk):
         if not file_path:
             return
 
-        try:
-            with open(file_path, "rb") as f:
-                backup_bytes = f.read()
-
-            # Собираем соли всех зарегистрированных профилей из БД на случай старых бэкапов
-            candidate_salts = []
+        def run_background_import():
             try:
-                candidate_salts = run_async(self.repo.get_all_salts())
-            except Exception:
-                pass
+                with open(file_path, "rb") as f:
+                    backup_bytes = f.read()
 
-            # Пробуем расшифровать активным мастер-паролем сейфа
-            try:
-                payload = decrypt_backup_file(
-                    backup_bytes,
-                    self.vault_password,
-                    salt=self.vault_salt,
-                    candidate_salts=candidate_salts
-                )
-            except Exception:
-                # Если активный пароль не подошел, запрашиваем пароль в диалоге
-                pwd_dialog = ctk.CTkInputDialog(
-                    text="Мастер-пароль активного сейфа не подошел.\nВведите пароль, которым зашифрован .snx файл:",
-                    title="Расшифровка .snx бэкапа"
-                )
-                backup_pwd = pwd_dialog.get_input()
-                if not backup_pwd:
+                # Собираем соли всех зарегистрированных профилей из БД на случай старых бэкапов
+                candidate_salts = []
+                try:
+                    candidate_salts = run_async(self.repo.get_all_salts())
+                except Exception:
+                    pass
+
+                # 1. Пробуем расшифровать активным мастер-паролем сейфа
+                payload = None
+                try:
+                    payload = decrypt_backup_file(
+                        backup_bytes,
+                        self.vault_password,
+                        salt=self.vault_salt,
+                        candidate_salts=candidate_salts
+                    )
+                except Exception:
+                    # Если активный пароль не подошел, запрашиваем пароль в диалоге в GUI потоке
+                    pwd_event = threading.Event()
+                    pwd_container = [None]
+
+                    def prompt_pwd():
+                        pwd_dialog = ctk.CTkInputDialog(
+                            text="Мастер-пароль активного сейфа не подошел.\nВведите пароль, которым зашифрован .snx файл:",
+                            title="Расшифровка .snx бэкапа"
+                        )
+                        pwd_container[0] = pwd_dialog.get_input()
+                        pwd_event.set()
+
+                    self.after(0, prompt_pwd)
+                    pwd_event.wait()
+
+                    backup_pwd = pwd_container[0]
+                    if not backup_pwd:
+                        return
+
+                    payload = decrypt_backup_file(
+                        backup_bytes,
+                        backup_pwd,
+                        salt=self.vault_salt,
+                        candidate_salts=candidate_salts
+                    )
+
+                items = [backup_item_to_bytes(w) for w in payload.get("wallets", [])]
+                if not items:
+                    self.after(0, lambda: messagebox.showwarning("Предупреждение", "Файл бэкапа не содержит кошельков."))
                     return
-                payload = decrypt_backup_file(
-                    backup_bytes,
-                    backup_pwd,
-                    salt=self.vault_salt,
-                    candidate_salts=candidate_salts
-                )
 
-            items = [backup_item_to_bytes(w) for w in payload.get("wallets", [])]
-            if not items:
-                messagebox.showwarning("Предупреждение", "Файл бэкапа не содержит кошельков.")
-                return
+                count = run_async(self.repo.import_wallets(self.vault_user_id, items))
 
-            count = run_async(self.repo.import_wallets(self.vault_user_id, items))
-            messagebox.showinfo("Успех", f"Успешно импортировано {count} кошельков из .snx файла!")
-            self._load_wallets()
+                def on_success():
+                    messagebox.showinfo("Успех", f"Успешно импортировано {count} кошельков из .snx файла!")
+                    self._load_wallets()
 
-        except Exception as e:
-            logger.exception("Ошибка импорта .snx бэкапа")
-            messagebox.showerror("Ошибка импорта", f"Не удалось расшифровать файл .snx:\n{e}")
+                self.after(0, on_success)
+
+            except Exception as e:
+                logger.exception("Ошибка импорта .snx бэкапа")
+                self.after(0, lambda: messagebox.showerror("Ошибка импорта", f"Не удалось расшифровать файл .snx:\n{e}"))
+
+        thread = threading.Thread(target=run_background_import, daemon=True)
+        thread.start()
 
     def _create_db_backup(self) -> None:
         """Копирует текущую базу данных в выбранное пользователем место."""

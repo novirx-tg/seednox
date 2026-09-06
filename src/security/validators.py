@@ -1,7 +1,9 @@
+import hashlib
 import re
 from dataclasses import dataclass
 
 from src.config import get_settings
+from src.security.bip39_wordlist import BIP39_WORD_INDEX, BIP39_WORD_SET
 
 # BIP39: 12, 15, 18, 21, 24 слова
 VALID_WORD_COUNTS = {12, 15, 18, 21, 24}
@@ -53,8 +55,29 @@ def validate_seed_phrase(seed: str) -> ValidationResult:
                 False,
                 "Слова сид-фразы должны содержать только латинские буквы (a-z)",
             )
-        if len(word) < 3 or len(word) > 8:
-            return ValidationResult(False, f"Некорректное слово: {word[:3]}...")
+        if word not in BIP39_WORD_SET:
+            return ValidationResult(
+                False,
+                f"Слово '{word}' не найдено в словаре BIP-39",
+            )
+
+    # Проверка контрольной суммы BIP-39
+    bits = "".join(bin(BIP39_WORD_INDEX[w])[2:].zfill(11) for w in words)
+    checksum_len = len(bits) // 33
+    entropy_len = len(bits) - checksum_len
+    entropy_bits = bits[:entropy_len]
+    checksum_bits = bits[entropy_len:]
+
+    entropy_bytes = bytes(int(entropy_bits[i:i+8], 2) for i in range(0, entropy_len, 8))
+    hash_bytes = hashlib.sha256(entropy_bytes).digest()
+    hash_bits = bin(hash_bytes[0])[2:].zfill(8)
+    expected_checksum = hash_bits[:checksum_len]
+
+    if checksum_bits != expected_checksum:
+        return ValidationResult(
+            False,
+            "Неверная контрольная сумма сид-фразы (checksum mismatch)",
+        )
 
     return ValidationResult(True)
 

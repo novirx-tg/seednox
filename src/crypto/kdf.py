@@ -40,14 +40,16 @@ def verify_password(password_hash: str, password: str) -> bool:
         return False
 
 
-def derive_key(password: str, salt: bytes) -> bytes:
+def derive_key(password: str | bytes | bytearray, salt: bytes) -> bytes:
     """
     Деривация ключа шифрования из пароля и соли.
     Argon2id → HKDF-SHA256 → 32-байтный AES-ключ.
+    Поддерживает str, bytes и bytearray (для RAM zeroize).
     """
     s = get_settings()
+    secret_bytes = password.encode("utf-8") if isinstance(password, str) else bytes(password)
     raw_key = low_level.hash_secret_raw(
-        secret=password.encode("utf-8"),
+        secret=secret_bytes,
         salt=salt[:16],
         time_cost=s.argon2_time_cost,
         memory_cost=s.argon2_memory_cost,
