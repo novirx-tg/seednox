@@ -19,7 +19,9 @@ class UserSession:
         pin_verified: bool = True,
     ) -> None:
         self.telegram_id = telegram_id
-        if isinstance(password, str):
+        if isinstance(password, bytearray):
+            self._password_bytes = password
+        elif isinstance(password, str):
             self._password_bytes = bytearray(password.encode("utf-8"))
         else:
             self._password_bytes = bytearray(password)
