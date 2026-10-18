@@ -22,12 +22,26 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install dependencies
+      - name: Install system dependencies (gdb for core dumps)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gdb
+          sudo sysctl -w kernel.yama.ptrace_scope=0 || true
+
+      - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest pytest-asyncio
+          pip install hypothesis pytest pytest-asyncio
 
-      - name: Run unit tests
+      - name: Run unit tests (including Zeroize RAM Core Dump verification)
         run: |
           python -m unittest discover -s tests -v
+
+      - name: Run AES-GCM Fuzzing Suite
+        run: |
+          python -m unittest fuzzing/fuzz_aes_gcm.py -v
+
+      - name: Verify 100% Bit-for-bit Reproducible Builds
+        run: |
+          python scripts/verify_reproducibility.py
