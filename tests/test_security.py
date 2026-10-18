@@ -107,6 +107,30 @@ class TestSecurity(unittest.TestCase):
         # Проверяем, что исходный буфер затерт
         self.assertEqual(len(pw_bytes), 0)
 
+    def test_zeroize_memory_verification_with_ctypes(self):
+        import ctypes
+        sm = SessionManager(timeout=60)
+        user_id = 888
+        pw = "UltraSecretToken999!#"
+        sm.unlock(user_id, pw)
+        pw_bytes = sm.get_password_bytes(user_id)
+        self.assertIsNotNone(pw_bytes)
+
+        # Получаем доступ к сырому C-буферу памяти в CPython
+        c_buf = (ctypes.c_char * len(pw_bytes)).from_buffer(pw_bytes)
+        self.assertEqual(bytes(c_buf), pw.encode("utf-8"))
+
+        # Вызываем zeroize
+        sm.lock(user_id)
+
+        # Доказываем, что физическая память буфера перезаписана нулями 0x00!
+        self.assertEqual(bytes(c_buf), b"\x00" * len(pw))
+        del c_buf
+
+        # Проверяем, что сессия очищена и пароль недоступен
+        self.assertFalse(sm.is_unlocked(user_id))
+        self.assertIsNone(sm.get_password(user_id))
+
 
 if __name__ == "__main__":
     unittest.main()

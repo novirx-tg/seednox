@@ -48,13 +48,26 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller pillow
 
+      - name: Set up Inno Setup
+        run: |
+          if (Test-Path "C:\Program Files (x86)\Inno Setup 6") {
+            echo "C:\Program Files (x86)\Inno Setup 6" >> $env:GITHUB_PATH
+          } elseif (Test-Path "C:\Program Files\Inno Setup 6") {
+            echo "C:\Program Files\Inno Setup 6" >> $env:GITHUB_PATH
+          } else {
+            choco install innosetup --yes --no-progress
+            echo "C:\Program Files (x86)\Inno Setup 6" >> $env:GITHUB_PATH
+          }
+
       - name: Generate App Icon (.ico)
         run: |
           python -c "from PIL import Image; img = Image.open('assets/logo_clean.png'); img.save('assets/app.ico', format='ICO', sizes=[(256, 256), (128, 128), (64, 64), (48, 48), (32, 32), (16, 16)])"
 
       - name: Build PyInstaller Bundle
         run: |
-          pyinstaller Seednox-Windows-v1.0.2.spec
+          $spec = (Get-ChildItem -Filter "Seednox-Windows-*.spec" | Select-Object -First 1).Name
+          Write-Host "Building using spec file: $spec"
+          python -m PyInstaller $spec --noconfirm
 
       - name: Compile Inno Setup Installer
         run: |
@@ -62,29 +75,22 @@ jobs:
 
       - name: Create Portable ZIP Archive
         run: |
-          Compress-Archive -Path dist\Seednox-Windows-v1.0.2\* -DestinationPath dist\Seednox-v1.0.2-Windows-x64.zip -Force
+          $distFolder = (Get-ChildItem -Path dist -Directory -Filter "Seednox-Windows-*" | Select-Object -First 1)
+          $tag = "${{ github.ref_name }}"
+          $zipPath = "dist/Seednox-$tag-Windows-x64.zip"
+          Write-Host "Compressing $($distFolder.FullName) into $zipPath"
+          Compress-Archive -Path "$($distFolder.FullName)\*" -DestinationPath $zipPath -Force
 
       - name: Generate Checksums (SHA256)
         run: |
-          Get-FileHash dist\Seednox-Setup-v1.0.2.exe, dist\Seednox-v1.0.2-Windows-x64.zip -Algorithm SHA256 | Format-List > SHA256SUMS.txt
+          $artifacts = Get-ChildItem -Path dist -Recurse -File -Include "*.exe", "*.zip"
+          Get-FileHash $artifacts.FullName -Algorithm SHA256 | Format-List > SHA256SUMS.txt
 
-      - name: Create GitHub Release
+      - name: Upload Release Assets to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/Seednox-Setup-v1.0.2.exe
-            dist/Seednox-v1.0.2-Windows-x64.zip
+            dist/*.exe
+            dist/*.zip
             SHA256SUMS.txt
           generate_release_notes: true
-          body: |
-            ## 📦 Официальные сборки Seednox v1.0.2
-
-            - 🚀 **`Seednox-Setup-v1.0.2.exe`** — Установочный мастер для Windows (рекомендуется).
-            - 📁 **`Seednox-v1.0.2-Windows-x64.zip`** — Портативная версия без установки.
-
-            ## 🔒 Проверка целостности (SHA256)
-
-            Сверьте хеши в `SHA256SUMS.txt` после скачивания:
-            ```powershell
-            Get-FileHash Seednox-Setup-v1.0.2.exe -Algorithm SHA256
-            ```

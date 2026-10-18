@@ -115,6 +115,29 @@ class TestCrypto(unittest.TestCase):
         self.assertEqual(len(restored_snx1["wallets"]), 1)
         self.assertEqual(restored_snx1["wallets"][0]["name"], "Test Wallet")
 
+    def test_nonce_uniqueness_and_no_reuse(self):
+        """Проверка невозможности коллизии nonce (AES-GCM nonce reuse catastrophe)."""
+        seen_nonces = set()
+        count = 10000
+        for _ in range(count):
+            nonce = generate_nonce()
+            self.assertEqual(len(nonce), 12)
+            self.assertNotIn(nonce, seen_nonces)
+            seen_nonces.add(nonce)
+        self.assertEqual(len(seen_nonces), count)
+
+        # Проверяем, что encrypt_seed всегда использует свежий уникальный nonce
+        payload = "seednox ultra secret seed phrase"
+        password = "MasterPassword123!"
+        salt = generate_salt()
+        encryption_nonces = set()
+        for _ in range(30):
+            ciphertext = encrypt_seed(payload, password, salt)
+            nonce = ciphertext[:12]
+            self.assertNotIn(nonce, encryption_nonces)
+            encryption_nonces.add(nonce)
+        self.assertEqual(len(encryption_nonces), 30)
+
 
 if __name__ == "__main__":
     unittest.main()

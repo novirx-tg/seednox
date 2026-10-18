@@ -42,7 +42,10 @@ class UserSession:
         if self._password_bytes is not None:
             for i in range(len(self._password_bytes)):
                 self._password_bytes[i] = 0
-            self._password_bytes.clear()
+            try:
+                self._password_bytes.clear()
+            except BufferError:
+                pass
             self._password_bytes = None
 
     def is_expired(self, timeout: int) -> bool:
